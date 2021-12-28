@@ -11,14 +11,17 @@
 #include <fcntl.h>
 #include <omp.h>
 
+#include "Utils/BSTKeyPtrPair.h"
+#include "Utils/Partition.h"
 #include "Utils/Record.h"
 
 #define PRINT_SAMPLED_KEYS 0
 #define PRINT_SORTED_SAMPLED_KEYS 0
-#define PRESORT_DATA_FOR_TESTING 0
-
 #define PRINT_SORTED_KEYS 0
-#define CHECK_KEYS_ARE_SORTED 1
+#define PRINT_PARTITION_INFO 0
+
+#define PRESORT_DATA_FOR_TESTING 0
+#define CHECK_KEYS_ARE_SORTED 0
 
 #define RECORD_STATS 0
 
@@ -34,6 +37,8 @@ Record* mmapUnsortedFile();
 void splitSort(Record* recordsBaseAddr);
 void systematicParSample(Record* recordsBaseAddr, vector<uint64_t>* sampledKeys);
 void stdSortSamples(vector<uint64_t>* sampledKeys);
+void parPartitionSamples(vector<uint64_t>* sampledKeys, Partition *partitions);
+void processSampleRange(int begin, int end, int index, Partition *partitions);
 
 int main(int argc, char *argv[]) {
 
@@ -42,6 +47,9 @@ int main(int argc, char *argv[]) {
     Usage: <num_keys_to_sort> <num_threads> <num_samples> <num_partitions>
 
     */
+
+    omp_set_dynamic(0);     // Explicitly disable dynamic teams
+    omp_set_num_threads(numThreads);
 
     if (argc != 5) {
         cout << "Num args supplied = " << argc << endl;
@@ -65,8 +73,6 @@ int main(int argc, char *argv[]) {
 #endif
     splitSort(recordBaseAddr);
     
-    
-
 #if PRINT_SORTED_KEYS
     for (int i = 0; i < numKeysToSort; i++) {
         cout << (recordBaseAddr + i)->key << endl;
@@ -75,6 +81,7 @@ int main(int argc, char *argv[]) {
 
 #if CHECK_KEYS_ARE_SORTED
     cout << "Working... Verifying keys are correctly sorted" << endl;
+    //#pragma omp parallel for num_threads(numThreads) 
     for (int i = 1; i < numKeysToSort; i++) {
         if ((recordBaseAddr + i)->key < (recordBaseAddr + i - 1)->key) {
             cout << "!!! Critical Failure. Sorting is incorrect !!!\n";
@@ -88,43 +95,24 @@ int main(int argc, char *argv[]) {
 
 }
 
-Record* mmapUnsortedFile() {
-    size_t targetLength = numKeysToSort * sizeof(Record);
-	char *pmemBaseAddr;
-    size_t mappedLen;
-    int isPmem;
-    cout << "Working... Mapping NVM file\n";
-
-    /* create a pmem file and memory map it */
-    if ((pmemBaseAddr = (char *) pmem_map_file(UNSORTED_FILE_PATH, targetLength, PMEM_FILE_CREATE, 0666, &mappedLen, &isPmem)) == NULL) {
-        perror("Failed to map target file to sort");
-        exit(1);
-    }
-
-    if (!isPmem) {
-        cout << "!!! Warning, mapped PMEM File is NOT in the Optane !!!\n";
-    }
-
-    return (Record*) pmemBaseAddr;
-
-}
-
 void splitSort(Record* recordsBaseAddr) {
 
     // Sample records
     vector<uint64_t>* sampledKeys = new vector<uint64_t>();
     systematicParSample(recordsBaseAddr, sampledKeys);
-
     // Sort samples
     stdSortSamples(sampledKeys);
 
     // Create partitions
+    Partition *partitions = new Partition[numPartitions];
+    parPartitionSamples(sampledKeys, partitions);
 
     // Insert into partitions
 
     // Read out the partitions
 
     delete sampledKeys;
+    delete[] partitions;
 
 }
 
@@ -164,4 +152,73 @@ void stdSortSamples(vector<uint64_t>* sampledKeys) {
 
 }
 
+void parPartitionSamples(vector<uint64_t>* sampledKeys, Partition *partitions) {
 
+    size_t subVecLen = numSamples / numPartitions;
+    size_t subVecLenPlusOne = subVecLen + 1;
+    size_t leftOver = numSamples % numPartitions;
+
+    #pragma omp parallel for num_threads(numThreads) 
+    for (int i = 0; i < numPartitions; i++) {
+        int begin, end;
+        if (i < leftOver) {
+            begin = i * (subVecLenPlusOne);
+            end = begin + (subVecLenPlusOne);
+            processSampleRange(begin, end, i, partitions);
+        } else {
+            begin = leftOver * (subVecLenPlusOne) + (i - leftOver) * subVecLen;
+            end = begin + subVecLen;
+            processSampleRange(begin, end, i, partitions);
+        }
+    }
+
+}
+
+void processSampleRange(int begin, int end, int index, Partition *partitions) {
+
+#if PRINT_PARTITION_INFO
+    cout << "Partition " << index << ": " << (end - begin) << " elements. [" << begin << ", " << end << "]\n";
+#endif
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Record* mmapUnsortedFile() {
+    size_t targetLength = numKeysToSort * sizeof(Record);
+	char *pmemBaseAddr;
+    size_t mappedLen;
+    int isPmem;
+    cout << "Working... Mapping NVM file\n";
+
+    /* create a pmem file and memory map it */
+    if ((pmemBaseAddr = (char *) pmem_map_file(UNSORTED_FILE_PATH, targetLength, PMEM_FILE_CREATE, 0666, &mappedLen, &isPmem)) == NULL) {
+        perror("Failed to map target file to sort");
+        exit(1);
+    }
+
+    if (!isPmem) {
+        cout << "!!! Warning, mapped PMEM File is NOT in the Optane !!!\n";
+    }
+
+    return (Record*) pmemBaseAddr;
+
+}

@@ -1,4 +1,4 @@
-
+#pragma once
 
 typedef struct BYTE_24 { unsigned char val[24]; } BYTE_24;
 
