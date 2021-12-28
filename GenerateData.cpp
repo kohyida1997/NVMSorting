@@ -9,7 +9,7 @@
 #include <fcntl.h>
 #include <omp.h>
 
-#include "Record.h"
+#include "Utils/Record.h"
 
 using namespace std;
 

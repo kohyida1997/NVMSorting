@@ -11,13 +11,16 @@
 #include <fcntl.h>
 #include <omp.h>
 
-#include "Record.h"
+#include "Utils/Record.h"
 
 #define PRINT_SAMPLED_KEYS 0
-#define PRESORT_DATA_FOR_TESTING 1
+#define PRINT_SORTED_SAMPLED_KEYS 0
+#define PRESORT_DATA_FOR_TESTING 0
 
 #define PRINT_SORTED_KEYS 0
 #define CHECK_KEYS_ARE_SORTED 1
+
+#define RECORD_STATS 0
 
 using namespace std;
 
@@ -30,6 +33,7 @@ static unsigned long numKeysToSort;
 Record* mmapUnsortedFile();
 void splitSort(Record* recordsBaseAddr);
 void systematicParSample(Record* recordsBaseAddr, vector<uint64_t>* sampledKeys);
+void stdSortSamples(vector<uint64_t>* sampledKeys);
 
 int main(int argc, char *argv[]) {
 
@@ -77,7 +81,7 @@ int main(int argc, char *argv[]) {
             exit(1);
         }
     }
-    cout << "Working... Success, Keys are in sorted ascending order!\n";
+    cout << "Working... Success, Keys are in sorted ascending order! ✓ \n";
 #endif
 
     return 0;
@@ -112,6 +116,7 @@ void splitSort(Record* recordsBaseAddr) {
     systematicParSample(recordsBaseAddr, sampledKeys);
 
     // Sort samples
+    stdSortSamples(sampledKeys);
 
     // Create partitions
 
@@ -135,7 +140,6 @@ void systematicParSample(Record* recordsBaseAddr, vector<uint64_t>* sampledKeys)
         (*sampledKeys)[i] = (recordsBaseAddr + (i * stepSize))->key;
     }
 
-
 #if PRINT_SAMPLED_KEYS 
     cout << "Printing... Sampled Keys\n";
     auto temp = *sampledKeys;
@@ -145,4 +149,19 @@ void systematicParSample(Record* recordsBaseAddr, vector<uint64_t>* sampledKeys)
 #endif
 
 }
+
+void stdSortSamples(vector<uint64_t>* sampledKeys) {
+    uint64_t* start = &(*sampledKeys)[0];
+    sort(start, start + numSamples);
+
+#if PRINT_SORTED_SAMPLED_KEYS 
+    cout << "Printing... Sorted Sampled Keys\n";
+    auto temp = *sampledKeys;
+    for (int i = 0; i < numSamples; i++) {
+        cout << "Sample " << i << ": " << (*sampledKeys)[i] << endl;
+    }
+#endif
+
+}
+
 
