@@ -12,6 +12,7 @@
 #include <omp.h>
 
 #include "Utils/BSTKeyPtrPair.h"
+#include "Utils/KeyPtrPair.h"
 #include "Utils/Partition.h"
 #include "Utils/Record.h"
 
@@ -35,10 +36,10 @@ static unsigned long numKeysToSort;
 
 Record* mmapUnsortedFile();
 void splitSort(Record* recordsBaseAddr);
-void systematicParSample(Record* recordsBaseAddr, vector<uint64_t>* sampledKeys);
-void stdSortSamples(vector<uint64_t>* sampledKeys);
-void parPartitionSamples(vector<uint64_t>* sampledKeys, Partition *partitions);
-void processSampleRange(int begin, int end, int index, Partition *partitions);
+void systematicParSample(Record* recordsBaseAddr, vector<KeyPtrPair>* sampledKeys);
+void stdSortSamples(vector<KeyPtrPair>* sampledKeys);
+void parPartitionSamples(vector<KeyPtrPair>* sampledKeys, Partition *partitions);
+void processSampleRange(int begin, int end, int index, Partition *partitions, vector<KeyPtrPair>* sampledKeys);
 
 int main(int argc, char *argv[]) {
 
@@ -98,12 +99,13 @@ int main(int argc, char *argv[]) {
 void splitSort(Record* recordsBaseAddr) {
 
     // Sample records
-    vector<uint64_t>* sampledKeys = new vector<uint64_t>();
+    vector<KeyPtrPair>* sampledKeys = new vector<KeyPtrPair>();
     systematicParSample(recordsBaseAddr, sampledKeys);
     // Sort samples
     stdSortSamples(sampledKeys);
 
-    // Create partitions
+    // Create and initialize partitions
+    /* Note: Partition (meta)data to be stored in DRAM. */
     Partition *partitions = new Partition[numPartitions];
     parPartitionSamples(sampledKeys, partitions);
 
@@ -116,7 +118,7 @@ void splitSort(Record* recordsBaseAddr) {
 
 }
 
-void systematicParSample(Record* recordsBaseAddr, vector<uint64_t>* sampledKeys) {
+void systematicParSample(Record* recordsBaseAddr, vector<KeyPtrPair>* sampledKeys) {
 
     sampledKeys->resize(numKeysToSort);
     int stepSize = numKeysToSort / numSamples;
@@ -125,34 +127,35 @@ void systematicParSample(Record* recordsBaseAddr, vector<uint64_t>* sampledKeys)
 
     #pragma omp parallel for num_threads(numThreads)
     for (int i = 0; i < numSamples; i++) {
-        (*sampledKeys)[i] = (recordsBaseAddr + (i * stepSize))->key;
+        (*sampledKeys)[i].key = (recordsBaseAddr + (i * stepSize))->key;
+        (*sampledKeys)[i].recordPtr = (recordsBaseAddr + (i * stepSize));
     }
 
 #if PRINT_SAMPLED_KEYS 
     cout << "Printing... Sampled Keys\n";
     auto temp = *sampledKeys;
     for (int i = 0; i < numSamples; i++) {
-        cout << "Sample " << i << ": " << temp[i] << endl;
+        cout << "Sample " << i << ": " << temp[i].key << endl;
     }
 #endif
 
 }
 
-void stdSortSamples(vector<uint64_t>* sampledKeys) {
-    uint64_t* start = &(*sampledKeys)[0];
-    sort(start, start + numSamples);
+void stdSortSamples(vector<KeyPtrPair>* sampledKeys) {
+    KeyPtrPair* start = &(*sampledKeys)[0];
+    sort(start, start + numSamples, [](KeyPtrPair x, KeyPtrPair y) {return x.key < y.key;});
 
 #if PRINT_SORTED_SAMPLED_KEYS 
     cout << "Printing... Sorted Sampled Keys\n";
     auto temp = *sampledKeys;
     for (int i = 0; i < numSamples; i++) {
-        cout << "Sample " << i << ": " << (*sampledKeys)[i] << endl;
+        cout << "Sample " << i << ": " << (*sampledKeys)[i].key << endl;
     }
 #endif
 
 }
 
-void parPartitionSamples(vector<uint64_t>* sampledKeys, Partition *partitions) {
+void parPartitionSamples(vector<KeyPtrPair>* sampledKeys, Partition *partitions) {
 
     size_t subVecLen = numSamples / numPartitions;
     size_t subVecLenPlusOne = subVecLen + 1;
@@ -164,17 +167,29 @@ void parPartitionSamples(vector<uint64_t>* sampledKeys, Partition *partitions) {
         if (i < leftOver) {
             begin = i * (subVecLenPlusOne);
             end = begin + (subVecLenPlusOne);
-            processSampleRange(begin, end, i, partitions);
+            processSampleRange(begin, end, i, partitions, sampledKeys);
         } else {
             begin = leftOver * (subVecLenPlusOne) + (i - leftOver) * subVecLen;
             end = begin + subVecLen;
-            processSampleRange(begin, end, i, partitions);
+            processSampleRange(begin, end, i, partitions, sampledKeys);
         }
     }
 
 }
 
-void processSampleRange(int begin, int end, int index, Partition *partitions) {
+void processSampleRange(int begin, int end, int index, Partition *partitions, vector<KeyPtrPair>* sampledKeys) {
+
+    Partition* targetPartition = partitions + index;
+    targetPartition->minKey = (*sampledKeys)[begin].key;
+    KeyPtrPair middleElem = (*sampledKeys)[(begin + end - 1) / 2];
+    BSTKeyPtrPair root;
+    root.key = middleElem.key;
+    root.recordPtr = middleElem.recordPtr;
+    root.left = nullptr;
+    root.right = nullptr;
+
+    // Create the BST in NVM (or DRAM) with a certain INIT_BST_SIZE
+
 
 #if PRINT_PARTITION_INFO
     cout << "Partition " << index << ": " << (end - begin) << " elements. [" << begin << ", " << end << "]\n";

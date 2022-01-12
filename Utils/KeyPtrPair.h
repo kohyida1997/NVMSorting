@@ -5,4 +5,4 @@
 struct KeyPtrPair {
     uint64_t key;
     Record* recordPtr;
-}
+};
