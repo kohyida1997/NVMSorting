@@ -5,6 +5,6 @@
 struct BSTKeyPtrPair {
     uint64_t key;
     Record* recordPtr;
-    BSTKeyPtrPair* left;
-    BSTKeyPtrPair* right;
+    BSTKeyPtrPair* left = nullptr;
+    BSTKeyPtrPair* right = nullptr;
 };

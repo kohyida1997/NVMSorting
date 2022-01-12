@@ -1,5 +1,5 @@
 echo Running script to generate 32 Records, 32B per Record, SEED = 1234.
-./GenerateData.o 64 1234 # 32 bytes Record, 16GB total size. 2^29 Records
+./GenerateData.o 33554432 2341 # 32 bytes Record, 16GB total size. 2^29 Records
 echo Data Generation Complete.
 
 # echo Running script to generate 32 Records, 32B per Record, SEED = 1234.
