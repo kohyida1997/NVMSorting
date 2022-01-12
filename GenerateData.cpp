@@ -73,22 +73,6 @@ int main(int argc, char *argv[]) {
 
     size_t targetLength = numKeys * sizeof(Record);
 
-	// char *pmemBaseAddr;
-    // size_t mappedLen;
-    // int isPmem;
-
-    // cout << "Working... Allocating NVM file\n";
-
-    // /* create a pmem file and memory map it */
-    // if ((pmemBaseAddr = (char *) pmem_map_file(GENERATED_FILE_PATH, targetLength, PMEM_FILE_CREATE, 0666, &mappedLen, &isPmem)) == NULL) {
-    //     perror("pmem_map_file failed to create records to sort");
-    //     exit(1);
-    // }
-
-    // if (!isPmem) {
-    //     cout << "!!! Warning, allocated PMEM File is NOT in the Optane !!!\n";
-    // }
-
     Record* recordBaseAddr = allocateNVMRegion<Record>(targetLength, GENERATED_FILE_PATH);//(Record*) pmemBaseAddr;
 
     size_t mappedLen = targetLength;

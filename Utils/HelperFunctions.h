@@ -9,14 +9,10 @@
 
 template <typename T>
 T* allocateNVMRegion(size_t targetLength, const char* TARGET_FILE_PATH) {
-
-    //size_t targetLength = objCount * sizeof(T);
-
 	char *pmemBaseAddr;
     size_t mappedLen;
     int isPmem;
-
-    std::cout << "Working... Allocating NVM file\n";
+    std::cout << "Working... Allocating NVM file: " << TARGET_FILE_PATH << "\n";
 
     /* create a pmem file and memory map it */
     if ((pmemBaseAddr = (char *) pmem_map_file(TARGET_FILE_PATH, targetLength, PMEM_FILE_CREATE, 0666, &mappedLen, &isPmem)) == NULL) {

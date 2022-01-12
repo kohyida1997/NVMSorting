@@ -5,5 +5,5 @@
 # echo Sorting Complete.
 
 echo Sorting Generated Data.
-./SplitSort.o 64 3 16 4
+./SplitSort.o 64 4 16 4
 echo Sorting Complete.
