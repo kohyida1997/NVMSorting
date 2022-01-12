@@ -132,7 +132,7 @@ int main(int argc, char *argv[]) {
         if ((finalSortedPairs + i)->key < (finalSortedPairs + i - 1)->key || errorRegister != 0) {
             cout << "!!! Critical Failure. Sorting is incorrect !!!\n";
             errorRegister++;
-            //exit(1);
+            exit(1);
         }
     }
 
