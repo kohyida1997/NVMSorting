@@ -32,14 +32,28 @@
 
 using namespace std;
 
+/* This is the path to the Unsorted file, that SHOULD be in NVM (dcpmm directory is NVM storage media) */
 static const char* UNSORTED_FILE_PATH = "/dcpmm/yida/UNSORTED_KEYS";
+
+/* This is the prefix for the temporary partitions we will create in this algorithm, that should ALSO be in NVM storage media*/
 static const char* PARTITION_FILE_PATH_PREFIX = "/dcpmm/yida/PARTITION";
+
+/* Number of threads to use when running SplitSort. */
 static unsigned int numThreads;
 
+/* Number of Records to sample out of ALL unsorted Records. Keep in mind that these samples will be stored in DRAM, NOT NVM. */
 static unsigned int numSamples;
 
+/* Number of partitions we will create in this run of the SplitSort algorithm. */
 static unsigned int numPartitions;
 
+/* A temporary array to store the final sorted pairs after the algorithm is done. 
+
+- What are KeyPtrPairs?
+> Instead of sorting the Record data structures, we sort a pair (Key, Ptr) where
+  key is the for the Record, and ptr is a POINTER to the Record object. Ie. (Record *)
+
+*/
 static KeyPtrPair* finalSortedPairs;
 
 /* 
@@ -63,6 +77,7 @@ static unsigned long expectedNodesPerPartition;
 static double partitionUnitFactor = 1.25;
 static unsigned long nodesPerAllocation;
 
+/* Number of Records to sort needs to be provided. */
 static unsigned long numKeysToSort;
 
 Record* mmapUnsortedFile();
@@ -94,6 +109,8 @@ int main(int argc, char *argv[]) {
         return 0;
     }
 
+    /* Setup the important metadata using command line args. */
+
     numKeysToSort = atol(argv[1]);
     numThreads = atoi(argv[2]);
     numSamples = atoi(argv[3]);
@@ -107,22 +124,29 @@ int main(int argc, char *argv[]) {
     cout << "Number of Samples taken: " << numSamples << endl;
     cout << "Number of Partitions: " << numPartitions << endl;
 
+    /* Map the unsorted Records into memory so that it is easier to operate on them. */
+
     Record* recordBaseAddr = mmapUnsortedFile();
+
+    /* Set up the final array to store the sorted (Key, Record *) pairs*/
 
     finalSortedPairs = new KeyPtrPair[numKeysToSort];
 
 #if PRINT_UNSORTED_KEYS
+    /* To be used for sanity checks only */
     for (int i = 0; i < numKeysToSort; i++) {
         cout << (recordBaseAddr + i)->key << endl;
     }    
 #endif
 
 #if PRESORT_DATA_FOR_TESTING
+    /* To be used for sanity checks only */
     sort(recordBaseAddr, recordBaseAddr + numKeysToSort, [](Record x, Record y) {return x.key < y.key;});
 #endif
     splitSort(recordBaseAddr); 
 
 #if CHECK_KEYS_ARE_SORTED
+    /* Verify that the sorting algorithm is CORRECT.  */
     cout << "Working... Verifying keys are correctly sorted" << endl;
 
     int errorRegister = 0;
@@ -144,6 +168,7 @@ int main(int argc, char *argv[]) {
     cout << "Working... Success, Keys are in sorted ascending order! ✓ \n";
 #endif
 
+    /* Cleanup */
     delete[] finalSortedPairs;
 
     return 0;
@@ -152,21 +177,22 @@ int main(int argc, char *argv[]) {
 
 void splitSort(Record* recordsBaseAddr) {
 
-    // Sample records
+    // Sample records (samples are stored in DRAM)
     vector<KeyPtrPair>* sampledKeys = new vector<KeyPtrPair>();
     systematicParSample(recordsBaseAddr, sampledKeys);
-    // Sort samples
+
+    // Sort samples (this is all done in DRAM)
     stdSortSamples(sampledKeys);
 
     // Create and initialize partitions
-    /* Note: Partition (meta)data to be stored in DRAM. */
+    /* Note: Partition metadata is stored in DRAM. But the actual KeyPtr data is stored in NVM */
     Partition *partitions = new Partition[numPartitions];
     parPartitionSamples(sampledKeys, partitions);
 
-    // Insert into partitions
+    // Insert into partitions (partitions data is in NVM, so we are inserting into NVM)
     insertAllRecordsIntoPartitions(recordsBaseAddr, partitions);
 
-    // Read out the partitions
+    // Read out the partitions (note that all partitions are sorted relative to each other. ie. All keys in Partition0 are smaller than all keys in Partition1 and so on.)
 
     // Sub-task: Compute prefix sums sequentially.
     long rollingSum = 0;
@@ -178,15 +204,18 @@ void splitSort(Record* recordsBaseAddr) {
         rollingSum += partitions[i].currPoolNodes;
     }
 
+    // Do in-order traversal of each partition in parallel after we have the prefix sums.
     #pragma omp parallel for num_threads(numThreads)
     for (int i = 0; i < numPartitions; i++)
         inOrderTraversal(partitions[i].rootOfBST, startDisplacement[i]);
 
+    // Cleanup (NOTE: need to unmap all the mapped files too)
     delete sampledKeys;
     delete[] partitions;
 
 }
 
+/* Perform systematic sampling of the unsorted Records, put them into sampledKeys vector. (Parallel) */
 void systematicParSample(Record* recordsBaseAddr, vector<KeyPtrPair>* sampledKeys) {
 
     sampledKeys->resize(numKeysToSort);
@@ -201,6 +230,7 @@ void systematicParSample(Record* recordsBaseAddr, vector<KeyPtrPair>* sampledKey
     }
 
 #if PRINT_SAMPLED_KEYS 
+    /* To be used for sanity checks only */
     cout << "Printing... Sampled Keys\n";
     auto temp = *sampledKeys;
     for (int i = 0; i < numSamples; i++) {
@@ -210,11 +240,13 @@ void systematicParSample(Record* recordsBaseAddr, vector<KeyPtrPair>* sampledKey
 
 }
 
+/* Sort all the sampled keys using STL sort. (Sequential) */
 void stdSortSamples(vector<KeyPtrPair>* sampledKeys) {
     KeyPtrPair* start = &(*sampledKeys)[0];
     sort(start, start + numSamples, [](KeyPtrPair x, KeyPtrPair y) {return x.key < y.key;});
 
 #if PRINT_SORTED_SAMPLED_KEYS 
+    /* To be used for sanity checks only */
     cout << "Printing... Sorted Sampled Keys\n";
     auto temp = *sampledKeys;
     for (int i = 0; i < numSamples; i++) {
@@ -224,6 +256,7 @@ void stdSortSamples(vector<KeyPtrPair>* sampledKeys) {
 
 }
 
+/* Create partitions out of the already sorted sampledKeys. Partitions are roughly the same size. (Parallel)*/
 void parPartitionSamples(vector<KeyPtrPair>* sampledKeys, Partition *partitions) {
 
     size_t subVecLen = numSamples / numPartitions;
@@ -246,6 +279,7 @@ void parPartitionSamples(vector<KeyPtrPair>* sampledKeys, Partition *partitions)
 
 }
 
+/* Each partition is essentially a contiguous range of items in sampledKeys, specified by BEGIN and END (exclusive). Here we initialize the metadata for one partition. (Sequential) */
 void processSampleRange(int begin, int end, int index, Partition *partitions, vector<KeyPtrPair>* sampledKeys) {
 
     Partition* targetPartition = partitions + index;
@@ -259,6 +293,8 @@ void processSampleRange(int begin, int end, int index, Partition *partitions, ve
 
     // Create the BST in NVM (or DRAM) with a certain INIT_BST_SIZE
     string partitionNameString(PARTITION_FILE_PATH_PREFIX);
+
+    // Naming convention for the NVM files opened for each partition is eg. "PARTITION5_1" and "PARTITION5_2" and so on. 
     partitionNameString.append(to_string(index) + "_" + to_string(0));
     BSTKeyPtrPair* partitionBaseAddr = allocateNVMRegion<BSTKeyPtrPair>(nodesPerAllocation * sizeof(BSTKeyPtrPair), partitionNameString.c_str());
 
@@ -266,17 +302,17 @@ void processSampleRange(int begin, int end, int index, Partition *partitions, ve
     pmem_memcpy_nodrain((void*) partitionBaseAddr, (void*) &root, sizeof(BSTKeyPtrPair));
     targetPartition->rootOfBST = partitionBaseAddr;
 
-    //targetPartition->totalNumNodes = 1;
     targetPartition->currPoolNodes = 1;
     targetPartition->currPoolBaseAddr = (char*) partitionBaseAddr;
     targetPartition->poolPtrs.push((char*) partitionBaseAddr);
 
 #if PRINT_PARTITION_INFO
+    /* To be used for sanity checks only */
     cout << "Partition " << index << ": " << (end - begin) << " elements. [" << begin << ", " << end << "] Root key = " << partitionBaseAddr->key << "\n";
 #endif
 }
 
-/* Returns the index of the correct Partition to insert into. (non-recursive) */
+/* Returns the index of the correct Partition to insert into using a Binary Search. (non-recursive) */
 int binSearchPartitionToInsertInto(uint64_t candidateKey, Partition *sortedPartitions) {
 
     int low = 0;
@@ -300,6 +336,7 @@ int binSearchPartitionToInsertInto(uint64_t candidateKey, Partition *sortedParti
     return idxToReturn;
 }
 
+/* After creating and initializing all the partitions, we start inserting ALL the original unsorted records into their correct partitions. (Parallel)*/
 void insertAllRecordsIntoPartitions(Record* recordsBaseAddr, Partition *partitions) {
 
     cout << "Working... Inserting all Records (their key-ptr pairs) into respective Partitions\n";
@@ -315,13 +352,11 @@ void insertAllRecordsIntoPartitions(Record* recordsBaseAddr, Partition *partitio
 
 /* Helper for insertBSTNode method */
 BSTKeyPtrPair* insertAtPosition(size_t position, BSTKeyPtrPair* toInsert, BSTKeyPtrPair* startOfRegion) {
-
     pmem_memcpy_nodrain((void* ) (startOfRegion + position), toInsert, sizeof(BSTKeyPtrPair));
-
     return (startOfRegion + position);
-
 }
 
+/* Each Partition essentially holds a single Binary Search Tree (BST). This method helps us to insert a ney Key into the BST at this partition. (Sequential) */
 void insertBSTNode(uint64_t keyToInsert, Record* recordPtr, Partition *targetPartition, int targetPartitionIdx) {
 
     BSTKeyPtrPair nodeToInsert;
@@ -329,6 +364,7 @@ void insertBSTNode(uint64_t keyToInsert, Record* recordPtr, Partition *targetPar
     nodeToInsert.recordPtr = recordPtr;
     BSTKeyPtrPair* root = targetPartition->rootOfBST;
 
+    // Multiple threads can access the same BST concurrently, so we need locking.
     targetPartition->mutex.lock();
 
     // If we run out of space, allocate new region!
@@ -341,7 +377,6 @@ void insertBSTNode(uint64_t keyToInsert, Record* recordPtr, Partition *targetPar
 
 
     if (targetPartition->currPoolNodes > 0 && targetPartition->currPoolNodes % nodesPerAllocation == 0) {
-        //cout << "Reallocating ... currPoolNodes = " << targetPartition->currPoolNodes << endl;
 
         // Reallocate
         string partitionNameString(PARTITION_FILE_PATH_PREFIX);
@@ -350,13 +385,12 @@ void insertBSTNode(uint64_t keyToInsert, Record* recordPtr, Partition *targetPar
 
         targetPartition->poolPtrs.push((char* ) newRegionBaseAddr);
         targetPartition->currPoolBaseAddr = (char* ) newRegionBaseAddr;
-        //targetPartition->currPoolNodes = 0;
         
     }
 
     BSTKeyPtrPair* curr = root;
 
-
+    // A little hack to get the insertion index (the BST nodes are actually stored as contiguous memory)
     int insertionIndex = targetPartition->currPoolNodes % nodesPerAllocation;
 
     while (true) {
@@ -384,6 +418,7 @@ void insertBSTNode(uint64_t keyToInsert, Record* recordPtr, Partition *targetPar
 
 }
 
+/* Perform an in-order traversal, recursively of a particular BST starting from the root, and inserting the accessed nodes into the final sorted array. */
 int inOrderTraversal(BSTKeyPtrPair* root, int startDisplacement) {
 
     if (root == nullptr) return startDisplacement;
@@ -395,6 +430,7 @@ int inOrderTraversal(BSTKeyPtrPair* root, int startDisplacement) {
     }
 
 #if PRINT_DURING_INORDER_TRAVERSAL
+    /* To be used for sanity checks only */
     cout << "Key = " << root->key << endl;
 #endif
 
@@ -410,18 +446,7 @@ int inOrderTraversal(BSTKeyPtrPair* root, int startDisplacement) {
 
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
+/* Utility method to map the unsorted Records into memory. */
 Record* mmapUnsortedFile() {
     size_t targetLength = numKeysToSort * sizeof(Record);
 	char *pmemBaseAddr;
