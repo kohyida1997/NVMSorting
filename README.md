@@ -1,10 +1,11 @@
 # NVMSorting
 
 ## Overview
-This is a parallel sorting algorithm that is intended for the systems that are NVM aware. Specifically, this code is designed to work with the Intel Optane DCPMM hardware, and
-requires the **libpmem** library provided by the PMDK project. This project also requires **C++17** and utilizes the **OpenMP** library for parallelization. The code is intended
+This is a parallel sorting algorithm (tentatively called "SplitSort") that is intended for the systems that are NVM aware. Specifically, this code is designed to work with the Intel Optane DCPMM hardware, and
+requires the **libpmem** library provided by the **PMDK** project. This project also requires **C++17** and utilizes the **OpenMP** library for parallelization. The code is intended
 to run on a DRAM-NVM hybrid architecture, with the Intel Optane DCPMM configured to App-Direct mode to bypass the kernel space.\
-Detailed information can be found in the reports located in the **Reports** folder of this repository.
+\
+Detailed information about the setup, experiments and algorithm can be found in the reports located in the **Reports** folder of this repository.
 
 ## Running the code
 
