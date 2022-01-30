@@ -1,4 +1,4 @@
-# NVMSorting
+# SplitSort - Sorting large files in the Intel Optane DCPMM
 
 ## Overview
 This is a parallel sorting algorithm (tentatively called "SplitSort") that is intended for the systems that are NVM aware. Specifically, this code is designed to work with the Intel Optane DCPMM hardware, and
@@ -28,3 +28,7 @@ Usage:\
 **Target file to sort should be on NVM, and needs to match the generated data's file path.** The number of items to be sorted needs to be specified as command line arguments to the program. Please edit the ```SortData.sh``` bash file directly if you wish to run different experimental setups.\
 Usage:\
 ```bash SortData.sh``` 
+
+## Credits
+Prof. Tan Kian Lee and Huang Wen Tao (of National University of Singapore) \
+Koh Yi Da
