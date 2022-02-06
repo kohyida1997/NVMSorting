@@ -13,7 +13,8 @@ Detailed information about the setup, experiments and algorithm can be found in 
 libpmem (from PMDK: https://manpages.debian.org/testing/libpmem-dev/libpmem.7.en.html) \
 C++17\
 OpenMP\
-pthreads
+pthreads\
+GCC 9.3.0 or higher
 
 ## Running the code
 
